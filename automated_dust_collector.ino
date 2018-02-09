@@ -12,12 +12,21 @@ Uses https://github.com/adafruit/Adafruit-PWM-Servo-Driver-Library
 */
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
-#include "IRLibAll.h"
-
+//#include "IRLibAll.h"
+#include <IRLibSendBase.h>    // First include the send base
+//Now include only the protocols you wish to actually use.
+//The lowest numbered protocol should be first but remainder 
+//can be any order.
+#include <IRLib_P01_NEC.h>    
+#include <IRLib_P02_Sony.h>   
+#include <IRLibCombo.h>     // After all protocols, include this
+// All of the above automatically creates a universal sending
+// class called "IRsend" containing only the protocols you want.
+// Now declare an instance of that sender.
 
 //IR Globals
-IRrecvPCI myReceiver(3); //create receiver and pass pin number
-IRdecode myDecoder;   //create decoder
+//IRrecvPCI myReceiver(3); //create receiver and pass pin number
+//IRdecode myDecoder;   //create decoder
 
 IRsend mySender;
  
@@ -49,24 +58,27 @@ const int NUMBER_OF_TOOLS = 5;
 const int NUMBER_OF_GATES = 8;
 
 String tools[NUMBER_OF_TOOLS] = {"Table Saw","Planer","Jointer","Miter Saw","Band Saw"}; // "Floor Sweep"
-int voltSensor[NUMBER_OF_TOOLS] = {A1,A2,A3,A4,A5};
+int voltSensor[NUMBER_OF_TOOLS] = {A1,A2,A3,A4,A3};
 long int voltBaseline[NUMBER_OF_TOOLS] = {0,0,0,0,0};
 
 //DC right, Y, miter, bandsaw, saw Y, tablesaw, floor sweep
 //Set the throw of each gate separately, if needed
+
+// {gate 0, gate 1, gate 2, gate 3, gate 4, gate 5, gate 6, gate 7}
 int gateMinMax[NUMBER_OF_GATES][2] = {
   /*open, close*/
   {SERVOMIN, SERVOMAX}, // North Y
   {SERVOMIN, SERVOMAX}, // South Y
-  {SERVOMIN, SERVOMAX}, // Table saw
+  {180, 425}, // Table saw
   {SERVOMIN, SERVOMAX}, // Planer
   {SERVOMIN, SERVOMAX}, // Jointer
-  {SERVOMIN, SERVOMAX}, // Miter Saw
-  {SERVOMIN, SERVOMAX}, // Band Saw
+  {530, 260}, // Miter Saw
+  {85, 275}, // Band Saw
   {SERVOMIN, SERVOMAX} // Floor Sweep
 };
 
 //keep track of gates to be toggled ON/OFF for each tool
+
 int gates[NUMBER_OF_TOOLS][NUMBER_OF_GATES] = {
   {0,1,1,0,0,0,0,0}, // table
   {0,1,0,1,0,0,0,0}, // planer
@@ -75,11 +87,10 @@ int gates[NUMBER_OF_TOOLS][NUMBER_OF_GATES] = {
   {1,0,0,0,0,0,1,0}, // bandsaw
 };
 
-const int dustCollectionRelayPin = 11;
 const int manualSwitchPin = 12; //for button activated gate, currently NOT implemented
 
 int mVperAmp = 66; // use 100 for 20A Module and 66 for 30A Module
-double ampThreshold = .5;
+double ampThreshold = 1;
 
 double Voltage = 0;
 double VRMS = 0;
@@ -97,22 +108,23 @@ long debounce = 200;   // the debounce time, increase if the output flickers
 
 void setup(){ 
   Serial.begin(9600);
-  pinMode(dustCollectionRelayPin,OUTPUT);
   pwm.begin();
-  pwm.setPWMFreq(60);  // Default is 1000mS
+  pwm.setPWMFreq(50);  // Default is 1000mS
   
  //record baseline sensor settings
  //currently unused, but could be used for voltage comparison if need be.
-  delay(1000);
+  Serial.println("STARTING");
   for(int i=0;i<NUMBER_OF_TOOLS;i++){
     pinMode(voltSensor[i],INPUT);
     voltBaseline[i] = analogRead(voltSensor[i]); 
+    Serial.println(voltBaseline[i]);
   }
   
 }
 
 void loop(){
   // use later for button debouncing
+  Serial.println("Hello");
   reading = digitalRead(manualSwitchPin);
 
   if (reading == HIGH && previous == LOW && millis() - time > debounce) {
@@ -145,6 +157,7 @@ void loop(){
     // use activeTool for gate processing
     if(collectorIsOn == false){
       //manage all gate positions
+      Serial.println("Turning on: " + tools[activeTool]);
       for(int s=0;s<NUMBER_OF_GATES;s++){
         int pos = gates[activeTool][s];
         if(pos == 1){
