@@ -125,21 +125,22 @@ long debounce = 200;   // the debounce time, increase if the output flickers
 
 void setup(){ 
   Serial.begin(9600);
-  pwm.begin();
-  pwm.setPWMFreq(50);  // Default is 1000mS
+  delay(2000); while (!Serial); //delay for Leonardo
+//  pwm.begin();
+//  pwm.setPWMFreq(50);  // Default is 1000mS
   
  //record baseline sensor settings
  //currently unused, but could be used for voltage comparison if need be.
-  for(int i=0;i<NUMBER_OF_TOOLS;i++){
-    pinMode(voltSensor[i],INPUT);
-    voltBaseline[i] = analogRead(voltSensor[i]);
-    if(DEBUG) {
-      Serial.print(tools[i]);
-      Serial.print(" baseline: ");
-      Serial.println(voltBaseline[i]);
-    } 
-  }
-  closeAll();
+//  for(int i=0;i<NUMBER_OF_TOOLS;i++){
+//    pinMode(voltSensor[i],INPUT);
+//    voltBaseline[i] = analogRead(voltSensor[i]);
+//    if(DEBUG) {
+//      Serial.print(tools[i]);
+//      Serial.print(" baseline: ");
+//      Serial.println(voltBaseline[i]);
+//    } 
+//  }
+
   
 }
 
@@ -151,11 +152,11 @@ void loop(){
   if (reading == HIGH  && millis() - time > debounce) {
     if (DC_status){
       collectorIsOn = false;
-      mySender.send(NEC,0x10EFE01F,32);
+//      mySender.send(NEC,0x10EFE01F,32);
       Serial.println("OFF");
     } else{
       collectorIsOn = true;
-      mySender.send(NEC,0x10EFC03F,32);
+//      mySender.send(NEC,0x10EFC03F,32);
       Serial.println("ON"); 
     }
     time = millis();
@@ -176,22 +177,12 @@ void loop(){
       //manage all gate positions
       Serial.print("Current Detected: ");
       Serial.println(tools[activeTool]);
-      for(int s=0;s<NUMBER_OF_GATES;s++){
-        int pos = gates[activeTool][s];
-        if(pos == 1){
-          openGate(s);    
-        } else {
-          closeGate(s);
-        }
-      }
-      delay(DC_spinup);
-      turnOnDustCollection();
+      delay(3000);
     }
   } else{
     if(collectorIsOn == true){
       Serial.println("Turning DC Off");
-      delay(DC_spindown);
-      turnOffDustCollection();  
+       
     }
   }
 }
@@ -278,4 +269,3 @@ void openAll() {
     delay(500);
   }
 }
-
