@@ -29,7 +29,7 @@ int gateMinMax[NUMBER_OF_GATES][2] = {
   {420, 340}, // 4 - Jointer
   {170, 230}, // 3 - Planer
   {390, 300}, // 5 - Miter Saw
-  {180, 250}, // 0 - South Y
+  {180, 250}, // 0 - South Y 
   {130, 200}, // 1 - North Y
   {140, 210}, // 6 - Band Saw
   {120, 205}, // 2 - Table saw

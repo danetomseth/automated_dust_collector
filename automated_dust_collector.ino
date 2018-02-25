@@ -54,22 +54,29 @@ boolean DEBUG = true;
 int DC_spindown = 2000;
 int DC_spinup = 1000;
 
- const int NUMBER_OF_TOOLS = 5;
+ const int NUMBER_OF_TOOLS = 7;
 const int NUMBER_OF_GATES = 7;
 
+unsigned long serialdata;
+int inbyte;
 
-// String tools[NUMBER_OF_TOOLS] = {"Table Saw","Planer","Jointer","Miter Saw","Band Saw"}; // "Floor Sweep"
-// int voltSensor[NUMBER_OF_TOOLS] = {A0,A1,A2,A3,A4};
+long data;
+int servoNum = 0;
+
+
+String tools[NUMBER_OF_TOOLS] = {"Table Saw","Planer","Jointer","Miter Saw","Band Saw"}; // "Floor Sweep"
+int voltSensor[NUMBER_OF_TOOLS] = {A4,A3,A0,A1,A2};
 
 
 long int voltBaseline[NUMBER_OF_TOOLS] = {0,0,0,0,0};
 
 
 
-//String tools[NUMBER_OF_TOOLS] = {"Miter Saw","Table Saw","Band Saw","Planer","Jointer"};
-String tools[NUMBER_OF_TOOLS] = {"A0","A1","A2","A3","A4"};
 
-int voltSensor[NUMBER_OF_TOOLS] = {A0,A1,A2,A3,A4};
+String gateLabels[NUMBER_OF_GATES] = {"Jointer", "Planer", "Miter", "South Y", "North Y", "Band Saw", "Table Saw"};
+
+
+
 
 //DC right, Y, miter, bandsaw, saw Y, tablesaw, floor sweep
 //Set the throw of each gate separately, if needed
@@ -77,26 +84,29 @@ int voltSensor[NUMBER_OF_TOOLS] = {A0,A1,A2,A3,A4};
 // {gate 0, gate 1, gate 2, gate 3, gate 4, gate 5, gate 6, gate 7}
 int gateMinMax[NUMBER_OF_GATES][2] = {
   /*open, close*/
-  {130, 425}, // 0 - South Y
-  {130, 425}, // 1 - North Y
-  {180, 425}, // 2 - Table saw
-  {200, 350}, // 3 - Planer
-  {420, 225}, // 4 - Jointer
-  {390, 250}, // 5 - Miter Saw
-  {100, 285} // 6 - Band Saw
+  {420, 340}, // 4 - Jointer
+  {170, 230}, // 3 - Planer
+  {390, 310}, // 5 - Miter Saw
+  {180, 250}, // 0 - South Y
+  {130, 200}, // 1 - North Y
+  {140, 210}, // 6 - Band Saw
+  {120, 205}, // 2 - Table saw
   // {SERVOMIN, SERVOMAX} // Floor Sweep
 };
 
-//keep track of gates to be toggled ON/OFF for each tool
+int servoChannel[NUMBER_OF_GATES] = {9,10,11,12,13,14,15}; // {jointer, planer, miter, south y, north y, bandsaw, tablesaw}
 
- int gates[NUMBER_OF_TOOLS][NUMBER_OF_GATES] = {
-   {1,0,0,0,0,1,0}, // miter
-   {1,0,1,0,0,0,0}, // table
-   {0,1,0,0,0,0,1}, // bandsaw
-   {1,0,0,1,0,0,0}, // planer
-   {1,0,0,0,1,0,0} // jointer
- };
+int gates[NUMBER_OF_TOOLS][NUMBER_OF_GATES] = {
+  // {jointer, planer, miter, south y, north y, bandsaw, tablesaw}
 
+  {0,0,0,0,0,0,1}, // table
+  {0,1,0,1,0,0,0}, // planer
+  {1,0,0,1,0,0,0}, // jointer
+  {0,0,1,1,0,0,0}, // miter
+  {0,0,0,0,1,1,0}, // bandsaw
+  {0,0,0,1,0,0,0}, // SOUTH
+  {0,0,0,0,1,0,0}, // NORTH
+};
 //int gates[NUMBER_OF_TOOLS][NUMBER_OF_GATES] = {
 //  {1,0,0,0,0,1,0}, // miter
 //  {0,0,1,0,0,0,0}, // table
@@ -104,9 +114,12 @@ int gateMinMax[NUMBER_OF_GATES][2] = {
 //};
 
 const int manualSwitchPin = 13; //for button activated gate, currently NOT implemented
+int currentGate = 9;
 
 int mVperAmp = 66; // use 100 for 20A Module and 66 for 30A Module
-double ampThreshold = 1;
+double ampThreshold = 3;
+int activeTool = 50;// a number that will never happen
+
 
 double Voltage = 0;
 double VRMS = 0;
@@ -116,12 +129,15 @@ double AmpsRMS = 0;
 int state = HIGH;      // the current state of the output pin
 int reading;           // the current reading from the input pin
 int previous = LOW;    // the previous reading from the input pin
-int DC_status = false;
+int buttonPressed = false;
+
+bool initiated = false;
+bool testRun = false;
 
 // the follow variables are long's because the time, measured in miliseconds,
 // will quickly become a bigger number than can be stored in an int.
 long time = 0;         // the last time the output pin was toggled
-long debounce = 200;   // the debounce time, increase if the output flickers
+long debounce = 1000;   // the debounce time, increase if the output flickers
 
 void setup(){ 
   Serial.begin(9600);
@@ -130,40 +146,70 @@ void setup(){
   
  //record baseline sensor settings
  //currently unused, but could be used for voltage comparison if need be.
-  for(int i=0;i<NUMBER_OF_TOOLS;i++){
-    pinMode(voltSensor[i],INPUT);
-    voltBaseline[i] = analogRead(voltSensor[i]);
-    if(DEBUG) {
-      Serial.print(tools[i]);
-      Serial.print(" baseline: ");
-      Serial.println(voltBaseline[i]);
-    } 
-  }
-  closeAll();
+//  for(int i=0;i<NUMBER_OF_TOOLS;i++){
+//    pinMode(voltSensor[i],INPUT);
+//    voltBaseline[i] = analogRead(voltSensor[i]);
+//    if(DEBUG) {
+//      Serial.print(tools[i]);
+//      Serial.print(" baseline: ");
+//      Serial.println(voltBaseline[i]);
+//    } 
+//  }
+  
   
 }
 
 void loop(){
   // use later for button debouncing
+  if(!initiated) {
+    for(int i = 0; i < NUMBER_OF_GATES; i++) {
+          currentGate = servoChannel[i];
+          closeGate(currentGate, i);
+    }
+    initiated = true;
+  }
+
+  if(testRun) {
+    Serial.println(" 0) Table Saw , 1) Planer , 2) Jointer , 3) Miter Saw , 4) Band Saw, 5) SOUTH ON, 6) NORTH ON");
+    activeTool = getSerial();
+    if(activeTool > NUMBER_OF_TOOLS) {
+      testRun = false;
+    }
+    else {
+      activateTool();
+      Serial.println("Waiting to turn off");
+      getSerial();
+      turnOffDustCollection();
+    }
+
+  }
+  else {
+
+
   reading = digitalRead(manualSwitchPin);
 
 
   if (reading == HIGH  && millis() - time > debounce) {
-    if (DC_status){
-      collectorIsOn = false;
-      mySender.send(NEC,0x10EFE01F,32);
-      Serial.println("OFF");
+    if (buttonPressed){
+      Serial.println("off");
+      buttonPressed = false;
+//      turnOffDustCollection();
+      
+      irSender.send(NEC,0x10EFE01F,32);
+     
     } else{
-      collectorIsOn = true;
-      mySender.send(NEC,0x10EFC03F,32);
-      Serial.println("ON"); 
+      Serial.println("on");
+      buttonPressed = true;
+      irSender.send(NEC,0x10EFC03F,32);
+//      turnOnDustCollection();
+       
     }
     time = millis();
   }
   
-  Serial.println("----------");
+//  Serial.println("----------");
    //loop through tools and check
-   int activeTool = 50;// a number that will never happen
+   activeTool = 50;// a number that will never happen
    for(int i=0;i<NUMBER_OF_TOOLS;i++){
       if( checkForAmperageChange(i)){
         activeTool = i;
@@ -174,18 +220,7 @@ void loop(){
     // use activeTool for gate processing
     if(collectorIsOn == false){
       //manage all gate positions
-      Serial.print("Current Detected: ");
-      Serial.println(tools[activeTool]);
-      for(int s=0;s<NUMBER_OF_GATES;s++){
-        int pos = gates[activeTool][s];
-        if(pos == 1){
-          openGate(s);    
-        } else {
-          closeGate(s);
-        }
-      }
-      delay(DC_spinup);
-      turnOnDustCollection();
+      activateTool();
     }
   } else{
     if(collectorIsOn == true){
@@ -195,16 +230,19 @@ void loop(){
     }
   }
 }
+}
 boolean checkForAmperageChange(int which) {
   Voltage = getVPP(voltSensor[which]);
   VRMS = (Voltage/2.0) *0.707; 
   AmpsRMS = (VRMS * 1000)/mVperAmp;
-  if(DEBUG) {
-    Serial.print(tools[which]+": ");
+ 
+  Serial.print(tools[which]+": ");
     Serial.print(AmpsRMS);
     Serial.println(" Amps RMS");
-  }
   if(AmpsRMS>ampThreshold) {
+    if(DEBUG) {
+    
+  }
     return true;
   }
   else {
@@ -224,7 +262,7 @@ void turnOffDustCollection(){
   }
   irSender.send(NEC,0x10EFE01F,32);
   collectorIsOn = false;
-  closeAll();
+//  closeAll();
 }
  
 float getVPP(int sensor)
@@ -258,24 +296,67 @@ float getVPP(int sensor)
    return result;
  }
 
-void closeGate(uint8_t num){
-  pwm.setPWM(num, 0, gateMinMax[num][0]);
+void activateTool() {
+  for(int s=0;s<NUMBER_OF_GATES;s++){
+        int pos = gates[activeTool][s];
+        if(pos == 1){
+          currentGate = servoChannel[s];
+          Serial.print("Open Gate: ");
+          Serial.println(currentGate);
+          openGate(currentGate, s);    
+        } else {
+          currentGate = servoChannel[s];
+          closeGate(currentGate, s);
+        }
+      }
+      delay(DC_spinup);
+      turnOnDustCollection();
 }
-void openGate(uint8_t num){
-  pwm.setPWM(num, 0, gateMinMax[num][1]);
+
+void closeGate(uint8_t num, uint8_t tool){
+  Serial.print("Gate: ");
+  Serial.print(num);
+  Serial.print(" --- Pos: ");
+  Serial.println(gateMinMax[tool][0]);
+  pwm.setPWM(num, 0, gateMinMax[tool][0]);
+}
+void openGate(uint8_t num, uint8_t tool){
+  Serial.print("Gate: ");
+  Serial.print(num);
+  Serial.print(" --- Pos: ");
+  Serial.println(gateMinMax[tool][1]);
+  pwm.setPWM(num, 0, gateMinMax[tool][1]);
 }
 
 void closeAll() {
   for(int i=0; i<NUMBER_OF_GATES; i++) {
-    pwm.setPWM(i, 0, gateMinMax[i][0]);
+    pwm.setPWM(servoChannel[i], 0, gateMinMax[i][0]);
     delay(500);
   }
 }
 
 void openAll() {
   for(int i=0; i<NUMBER_OF_GATES; i++) {
-    pwm.setPWM(i, 0, gateMinMax[i][1]);
+    pwm.setPWM(servoChannel[i], 0, gateMinMax[i][1]);
     delay(500);
   }
+}
+
+
+long getSerial()
+{
+  serialdata = 0;
+  while (inbyte != '/')
+  {
+    inbyte = Serial.read();  
+    if (inbyte > 0 && inbyte != '/')
+    { 
+      serialdata = serialdata * 10 + inbyte - '0';
+//      Serial.println(serialdata);
+    }
+  }
+  inbyte = 0;
+  return serialdata;
+  
 }
 
